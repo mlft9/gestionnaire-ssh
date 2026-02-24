@@ -1,0 +1,21 @@
+# Env
+.env
+*.env.local
+
+# Go
+backend/vendor/
+backend/*.exe
+backend/server
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Docker volumes
+postgres_data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.claude/

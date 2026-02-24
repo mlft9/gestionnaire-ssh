@@ -1,0 +1,238 @@
+package ssh
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"strings"
+	"sync"
+	"time"
+	"unsafe"
+
+	"github.com/gestion-ssh/backend/internal/db"
+	"github.com/gestion-ssh/backend/internal/ws"
+	"github.com/gorilla/websocket"
+	"github.com/jackc/pgx/v5/pgxpool"
+	gossh "golang.org/x/crypto/ssh"
+)
+
+// Proxy gère le cycle de vie d'une session SSH via WebSocket.
+type Proxy struct {
+	pool      *pgxpool.Pool
+	wsConn    *websocket.Conn
+	writeMu   sync.Mutex
+	sessionID string
+}
+
+func NewProxy(pool *pgxpool.Pool, wsConn *websocket.Conn) *Proxy {
+	return &Proxy{pool: pool, wsConn: wsConn}
+}
+
+// HandleConnection traite le message "connect" et orchestre la session SSH.
+func (p *Proxy) HandleConnection(ctx context.Context, payload ws.ConnectPayload, userID, clientIP string) {
+	defer p.send(ws.MsgClosed, map[string]string{"reason": "session ended"})
+
+	// 1. Récupérer l'hôte en base (vérification d'ownership incluse)
+	host, err := db.GetHostByID(ctx, p.pool, payload.HostID, userID)
+	if err != nil {
+		p.sendError("host not found")
+		return
+	}
+
+	// 2. Construire la config SSH
+	sshConfig := &gossh.ClientConfig{
+		User:            host.Username,
+		HostKeyCallback: gossh.InsecureIgnoreHostKey(), // TODO V2: TOFU
+		Timeout:         15 * time.Second,
+	}
+
+	credential := payload.Credential
+	switch host.AuthType {
+	case "password":
+		sshConfig.Auth = []gossh.AuthMethod{gossh.Password(credential)}
+	case "key":
+		signer, err := gossh.ParsePrivateKey([]byte(credential))
+		if err != nil {
+			p.sendError("invalid private key")
+			zeroString(&credential)
+			return
+		}
+		sshConfig.Auth = []gossh.AuthMethod{gossh.PublicKeys(signer)}
+	}
+
+	// Zero-out le credential dès qu'il n'est plus nécessaire
+	defer zeroString(&credential)
+
+	// 3. Connexion SSH
+	addr := fmt.Sprintf("%s:%d", host.Hostname, host.Port)
+	client, err := gossh.Dial("tcp", addr, sshConfig)
+	if err != nil {
+		p.sendError(fmt.Sprintf("connection failed: %v", err))
+		return
+	}
+	defer client.Close()
+
+	// 4. Créer une session SSH
+	session, err := client.NewSession()
+	if err != nil {
+		p.sendError("failed to create SSH session")
+		return
+	}
+	defer session.Close()
+
+	// 5. PTY
+	modes := gossh.TerminalModes{
+		gossh.ECHO:          1,
+		gossh.TTY_OP_ISPEED: 14400,
+		gossh.TTY_OP_OSPEED: 14400,
+	}
+	cols, rows := int(payload.Cols), int(payload.Rows)
+	if cols == 0 {
+		cols = 80
+	}
+	if rows == 0 {
+		rows = 24
+	}
+	if err := session.RequestPty("xterm-256color", rows, cols, modes); err != nil {
+		p.sendError("failed to request PTY")
+		return
+	}
+
+	// 6. Pipes stdin/stdout/stderr
+	stdin, err := session.StdinPipe()
+	if err != nil {
+		p.sendError("failed to create stdin pipe")
+		return
+	}
+	stdout, err := session.StdoutPipe()
+	if err != nil {
+		p.sendError("failed to create stdout pipe")
+		return
+	}
+	stderr, err := session.StderrPipe()
+	if err != nil {
+		p.sendError("failed to create stderr pipe")
+		return
+	}
+
+	if err := session.Shell(); err != nil {
+		p.sendError("failed to start shell")
+		return
+	}
+
+	// 7. Enregistrer la session en base
+	sessionID, err := db.CreateSession(ctx, p.pool, userID, host.ID, clientIP)
+	if err != nil {
+		log.Printf("failed to create session record: %v", err)
+	}
+	p.sessionID = sessionID
+	p.send(ws.MsgConnected, ws.ConnectedPayload{
+		SessionID: sessionID,
+		HostName:  host.Name,
+	})
+
+	// 8. SSH output → WebSocket
+	ctx2, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := stdout.Read(buf)
+			if n > 0 {
+				p.send(ws.MsgOutput, ws.OutputPayload{Data: string(buf[:n])})
+			}
+			if err != nil {
+				cancel()
+				return
+			}
+		}
+	}()
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := stderr.Read(buf)
+			if n > 0 {
+				p.send(ws.MsgOutput, ws.OutputPayload{Data: string(buf[:n])})
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	// 9. WebSocket input → SSH stdin (boucle principale)
+	for {
+		select {
+		case <-ctx2.Done():
+			return
+		default:
+		}
+
+		_, raw, err := p.wsConn.ReadMessage()
+		if err != nil {
+			return
+		}
+
+		var msg ws.ClientMessage
+		if err := json.Unmarshal(raw, &msg); err != nil {
+			continue
+		}
+
+		switch msg.Type {
+		case ws.MsgInput:
+			var input ws.InputPayload
+			if err := json.Unmarshal(msg.Payload, &input); err != nil {
+				continue
+			}
+			io.WriteString(stdin, input.Data)
+
+		case ws.MsgResize:
+			var resize ws.ResizePayload
+			if err := json.Unmarshal(msg.Payload, &resize); err != nil {
+				continue
+			}
+			session.WindowChange(int(resize.Rows), int(resize.Cols))
+
+		case ws.MsgDisconnect:
+			return
+		}
+	}
+}
+
+func (p *Proxy) send(msgType ws.MessageType, payload interface{}) {
+	msg := ws.ServerMessage{Type: msgType, Payload: payload}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
+	p.wsConn.WriteMessage(websocket.TextMessage, data)
+}
+
+func (p *Proxy) sendError(message string) {
+	p.send(ws.MsgError, ws.ErrorPayload{Message: message})
+}
+
+func (p *Proxy) CloseSession(ctx context.Context) {
+	if p.sessionID != "" {
+		db.CloseSession(ctx, p.pool, p.sessionID)
+	}
+}
+
+// zeroString écrase le contenu d'une string en mémoire.
+// Go ne garantit pas le garbage collection immédiat, donc on fait de notre mieux.
+func zeroString(s *string) {
+	if len(*s) == 0 {
+		return
+	}
+	b := []byte(strings.Repeat("\x00", len(*s)))
+	// On écrase via unsafe pour contourner l'immuabilité des strings Go
+	sp := (*[2]uintptr)(unsafe.Pointer(s))
+	dp := (*[2]uintptr)(unsafe.Pointer(&b))
+	sp[0] = dp[0]
+	*s = string(b)
+}
