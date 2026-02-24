@@ -31,6 +31,13 @@ export async function deriveMasterKey(
   kdfSaltB64: string,
   params: KDFParams = DEFAULT_KDF_PARAMS
 ): Promise<CryptoKey> {
+  if (!window.isSecureContext || !crypto?.subtle) {
+    throw new Error(
+      'Contexte non sécurisé : accédez au site via HTTPS (https://...:8443). ' +
+      `isSecureContext=${window.isSecureContext}, subtle=${!!crypto?.subtle}`
+    )
+  }
+
   const salt = base64ToUint8Array(kdfSaltB64)
 
   // Argon2id via WASM — ne bloque pas le thread principal grâce à l'async
