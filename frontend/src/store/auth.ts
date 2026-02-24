@@ -4,6 +4,9 @@
  * La MasterKey (CryptoKey) est stockée uniquement en mémoire.
  * Elle est dérivée au login et effacée au logout.
  * Elle ne touche JAMAIS localStorage/sessionStorage.
+ *
+ * Les données utilisateur (sans MasterKey ni token) sont stockées en sessionStorage
+ * pour permettre la restauration de session après un rafraîchissement de page.
  */
 
 import { create } from 'zustand'
@@ -39,6 +42,29 @@ interface AuthState {
   clearError: () => void
 }
 
+// ─── Session storage (données user uniquement, jamais la clé ni le token) ──────
+
+const SESSION_KEY = 'ssh_mgr_user'
+
+function saveSession(user: AuthUser) {
+  try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(user)) } catch { /* noop */ }
+}
+
+function clearSession() {
+  try { sessionStorage.removeItem(SESSION_KEY) } catch { /* noop */ }
+}
+
+export function loadSessionUser(): AuthUser | null {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY)
+    return raw ? (JSON.parse(raw) as AuthUser) : null
+  } catch {
+    return null
+  }
+}
+
+// ─── Store ────────────────────────────────────────────────────────────────────
+
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   masterKey: null,
@@ -46,22 +72,31 @@ export const useAuthStore = create<AuthState>((set) => ({
   isLoading: false,
   error: null,
 
-  setUser: (user, masterKey, accessToken) =>
-    set({ user, masterKey, accessToken, error: null }),
+  setUser: (user, masterKey, accessToken) => {
+    saveSession(user)
+    set({ user, masterKey, accessToken, error: null })
+  },
 
   setAccessToken: (token) => set({ accessToken: token }),
 
   setEmail: (email) =>
-    set((state) => ({
-      user: state.user ? { ...state.user, email } : null,
-    })),
+    set((state) => {
+      const user = state.user ? { ...state.user, email } : null
+      if (user) saveSession(user)
+      return { user }
+    }),
 
   setTOTPEnabled: (enabled) =>
-    set((state) => ({
-      user: state.user ? { ...state.user, totpEnabled: enabled } : null,
-    })),
+    set((state) => {
+      const user = state.user ? { ...state.user, totpEnabled: enabled } : null
+      if (user) saveSession(user)
+      return { user }
+    }),
 
-  logout: () => set({ user: null, masterKey: null, accessToken: null }),
+  logout: () => {
+    clearSession()
+    set({ user: null, masterKey: null, accessToken: null })
+  },
 
   clearError: () => set({ error: null }),
 }))
