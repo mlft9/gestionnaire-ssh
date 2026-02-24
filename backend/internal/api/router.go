@@ -115,10 +115,14 @@ func NewRouter(cfg *config.Config, pool *pgxpool.Pool) http.Handler {
 	})
 
 	// ─── Routes admin ─────────────────────────────────────────────────────────
+	adminHandler := handlers.NewAdminHandler(pool)
 	r.Group(func(r chi.Router) {
 		r.Use(mw.Authenticate(cfg.JWTSecret))
 		r.Use(mw.RequireAdmin)
 		r.Put("/api/settings/registration", settingsHandler.SetRegistration)
+		r.Get("/api/admin/users", adminHandler.ListUsers)
+		r.Delete("/api/admin/users/{id}", adminHandler.DeleteUser)
+		r.Get("/api/admin/sessions", adminHandler.ListSessions)
 	})
 
 	// ─── Health check ─────────────────────────────────────────────────────────

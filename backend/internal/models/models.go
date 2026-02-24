@@ -66,3 +66,13 @@ type Session struct {
 	EndedAt   *time.Time `json:"ended_at,omitempty"`
 	ClientIP  string     `json:"client_ip"`
 }
+
+type SessionWithDetails struct {
+	ID           string     `json:"id"`
+	UserEmail    string     `json:"user_email"`
+	HostName     string     `json:"host_name"`
+	HostHostname string     `json:"host_hostname"`
+	StartedAt    time.Time  `json:"started_at"`
+	EndedAt      *time.Time `json:"ended_at"`
+	ClientIP     string     `json:"client_ip"`
+}

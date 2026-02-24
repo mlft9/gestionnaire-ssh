@@ -99,6 +99,79 @@ func UpdateUserPassword(ctx context.Context, pool *pgxpool.Pool, userID, newPass
 	return tx.Commit(ctx)
 }
 
+func ListUsers(ctx context.Context, pool *pgxpool.Pool) ([]*models.User, error) {
+	rows, err := pool.Query(ctx, `
+		SELECT id, email, password_hash, kdf_salt, kdf_params, is_admin, totp_enabled, created_at
+		FROM users ORDER BY created_at ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []*models.User
+	for rows.Next() {
+		u := &models.User{}
+		if err := rows.Scan(
+			&u.ID, &u.Email, &u.PasswordHash,
+			&u.KDFSalt, &u.KDFParams, &u.IsAdmin, &u.TOTPEnabled, &u.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	return users, rows.Err()
+}
+
+func CountAdmins(ctx context.Context, pool *pgxpool.Pool) (int, error) {
+	var count int
+	err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM users WHERE is_admin = TRUE`).Scan(&count)
+	return count, err
+}
+
+func DeleteUserByID(ctx context.Context, pool *pgxpool.Pool, id string) error {
+	tag, err := pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func ListSessionsAll(ctx context.Context, pool *pgxpool.Pool) ([]*models.SessionWithDetails, error) {
+	rows, err := pool.Query(ctx, `
+		SELECT s.id,
+		       COALESCE(u.email, '(supprimé)'),
+		       COALESCE(h.name, '(supprimé)'),
+		       COALESCE(h.hostname, ''),
+		       s.started_at, s.ended_at, s.client_ip
+		FROM sessions s
+		LEFT JOIN users u ON s.user_id = u.id
+		LEFT JOIN hosts h ON s.host_id = h.id
+		ORDER BY s.started_at DESC
+		LIMIT 200
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sessions []*models.SessionWithDetails
+	for rows.Next() {
+		s := &models.SessionWithDetails{}
+		if err := rows.Scan(
+			&s.ID, &s.UserEmail, &s.HostName, &s.HostHostname,
+			&s.StartedAt, &s.EndedAt, &s.ClientIP,
+		); err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, s)
+	}
+	return sessions, rows.Err()
+}
+
 // ─── TOTP ──────────────────────────────────────────────────────────────────────
 
 func GetTOTPSecret(ctx context.Context, pool *pgxpool.Pool, userID string) (secret string, enabled bool, err error) {

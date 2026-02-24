@@ -200,6 +200,32 @@ export const profileApi = {
     }),
 }
 
+// ─── Admin ────────────────────────────────────────────────────────────────────
+
+export interface AdminUser {
+  id: string
+  email: string
+  is_admin: boolean
+  totp_enabled: boolean
+  created_at: string
+}
+
+export interface AdminSession {
+  id: string
+  user_email: string
+  host_name: string
+  host_hostname: string
+  started_at: string
+  ended_at: string | null
+  client_ip: string
+}
+
+export const adminApi = {
+  listUsers:    ()        => api.get<AdminUser[]>('/admin/users'),
+  deleteUser:   (id: string) => api.delete(`/admin/users/${id}`),
+  listSessions: ()        => api.get<AdminSession[]>('/admin/sessions'),
+}
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 export const initApi = {
