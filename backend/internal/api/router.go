@@ -36,6 +36,10 @@ func NewRouter(cfg *config.Config, pool *pgxpool.Pool) http.Handler {
 		MaxAge:           300,
 	}
 	if cfg.Debug {
+		// En debug, on vide AllowedOrigins pour éviter que allowedOriginsAll=true
+		// (causé par "*") ne court-circuite AllowOriginFunc et renvoie "*" dans
+		// le header — incompatible avec withCredentials:true côté navigateur.
+		corsOptions.AllowedOrigins = []string{}
 		corsOptions.AllowOriginFunc = func(r *http.Request, origin string) bool { return true }
 	}
 	r.Use(cors.Handler(corsOptions))

@@ -71,6 +71,7 @@ export default function LoginPage() {
       const { data } = await authApi.login(email, password)
       loginData = data
     } catch (err: unknown) {
+      console.error('[Login] Erreur appel API:', err)
       const msg = (err as { response?: { data?: { error?: string } } })
         ?.response?.data?.error
       setError(msg ?? 'Serveur inaccessible — vérifiez que le backend est démarré')
@@ -95,6 +96,7 @@ export default function LoginPage() {
         await completeLogin(loginData)
       }
     } catch (err: unknown) {
+      console.error('[Login] Erreur completeLogin:', err)
       const axiosMsg = (err as { response?: { data?: { error?: string } } })
         ?.response?.data?.error
       const jsMsg = err instanceof Error ? err.message : null
