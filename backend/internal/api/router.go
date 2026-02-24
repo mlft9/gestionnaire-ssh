@@ -28,13 +28,17 @@ func NewRouter(cfg *config.Config, pool *pgxpool.Pool) http.Handler {
 
 	// CORS
 	origins := strings.Split(cfg.AllowedOrigins, ",")
-	r.Use(cors.Handler(cors.Options{
+	corsOptions := cors.Options{
 		AllowedOrigins:   origins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
 		AllowCredentials: true,
 		MaxAge:           300,
-	}))
+	}
+	if cfg.Debug {
+		corsOptions.AllowOriginFunc = func(r *http.Request, origin string) bool { return true }
+	}
+	r.Use(cors.Handler(corsOptions))
 
 	// ─── Handlers ─────────────────────────────────────────────────────────────
 	authHandler := handlers.NewAuthHandler(pool, cfg)

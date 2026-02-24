@@ -29,6 +29,7 @@ services:
       PORT: "8080"
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5173}
       TOTP_REQUIRED: ${TOTP_REQUIRED:-false}
+      DEBUG: ${DEBUG:-false}
     ports:
       - "9742:8080"
     depends_on:

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gestion-ssh/backend/internal/api"
+	"github.com/gestion-ssh/backend/internal/api/handlers"
 	"github.com/gestion-ssh/backend/internal/config"
 	"github.com/gestion-ssh/backend/internal/db"
 	"github.com/joho/godotenv"
@@ -19,6 +20,15 @@ func main() {
 	_ = godotenv.Load()
 
 	cfg := config.Load()
+
+	if cfg.Debug {
+		handlers.DebugMode = true
+		log.Println("⚠ DEBUG MODE ENABLED — ne pas utiliser en production")
+		log.Printf("  port           : %s", cfg.Port)
+		log.Printf("  allowed_origins: %s", cfg.AllowedOrigins)
+		log.Printf("  totp_required  : %v", cfg.TOTPRequired)
+		log.Printf("  cors           : toutes les origines acceptées")
+	}
 
 	database, err := db.Connect(cfg.DatabaseURL)
 	if err != nil {

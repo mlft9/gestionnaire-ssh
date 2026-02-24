@@ -11,6 +11,7 @@ type Config struct {
 	Port           string
 	AllowedOrigins string
 	TOTPRequired   bool
+	Debug          bool
 }
 
 func Load() *Config {
@@ -20,6 +21,7 @@ func Load() *Config {
 		Port:           getEnv("PORT", "8080"),
 		AllowedOrigins: getEnv("ALLOWED_ORIGINS", "http://localhost:5173"),
 		TOTPRequired:   getEnv("TOTP_REQUIRED", "false") == "true",
+		Debug:          getEnv("DEBUG", "false") == "true",
 	}
 
 	if cfg.JWTSecret == "" {
