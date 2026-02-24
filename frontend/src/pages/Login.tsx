@@ -65,15 +65,26 @@ export default function LoginPage() {
     setError('')
     setLoading(true)
 
+    // ── 1. Appel API login ─────────────────────────────────────────────────
+    let loginData: LoginResponse
     try {
       const { data } = await authApi.login(email, password)
+      loginData = data
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })
+        ?.response?.data?.error
+      setError(msg ?? 'Serveur inaccessible — vérifiez que le backend est démarré')
+      setLoading(false)
+      return
+    }
 
-      if (data.two_factor_required) {
-        setTotpToken(data.totp_token!)
+    // ── 2. Dérivation de clé / navigation ─────────────────────────────────
+    try {
+      if (loginData.two_factor_required) {
+        setTotpToken(loginData.totp_token!)
 
-        if (data.totp_setup_required) {
-          // Mandatory 2FA — fetch QR setup then show setup step
-          const { data: setup } = await totpApi.setup(data.totp_token!)
+        if (loginData.totp_setup_required) {
+          const { data: setup } = await totpApi.setup(loginData.totp_token!)
           setOtpauthUrl(setup.otpauth_url)
           setQrSecret(setup.secret)
           setStep('totp_setup')
@@ -81,12 +92,13 @@ export default function LoginPage() {
           setStep('totp_verify')
         }
       } else {
-        await completeLogin(data)
+        await completeLogin(loginData)
       }
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { error?: string } } })
+      const axiosMsg = (err as { response?: { data?: { error?: string } } })
         ?.response?.data?.error
-      setError(msg ?? 'Serveur inaccessible — vérifiez que le backend est démarré')
+      const jsMsg = err instanceof Error ? err.message : null
+      setError(axiosMsg ?? jsMsg ?? 'Erreur lors de la dérivation de clé')
     } finally {
       setLoading(false)
     }
