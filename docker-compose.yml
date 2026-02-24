@@ -41,8 +41,11 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      SERVER_NAME: ${SERVER_NAME:-localhost}
     ports:
       - "8473:80"
+      - "8443:443"
     depends_on:
       - backend
 
