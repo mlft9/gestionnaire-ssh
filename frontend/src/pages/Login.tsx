@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Terminal, Loader2, ShieldCheck, ArrowLeft, Eye, EyeOff } from 'lucide-react'
 import { toDataURL as qrToDataURL } from 'qrcode'
 import { authApi, totpApi, LoginResponse } from '../services/api'
-import { deriveKeyFromLogin, useAuthStore } from '../store/auth'
+import { deriveKeyFromLogin, useAuthStore, saveRememberMe } from '../store/auth'
 
 type Step = 'credentials' | 'totp_verify' | 'totp_setup'
 
@@ -27,6 +27,7 @@ export default function LoginPage() {
   const [showSecret, setShowSecret] = useState(false)
 
   // UI
+  const [rememberMe, setRememberMe] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -39,24 +40,18 @@ export default function LoginPage() {
     }
   }, [otpauthUrl])
 
-  async function completeLogin(data: LoginResponse) {
-    const masterKey = await deriveKeyFromLogin(
-      password,
-      data.user!.kdf_salt,
-      data.user!.kdf_params
-    )
-    setUser(
-      {
-        id: data.user!.id!,
-        email: data.user!.email!,
-        kdfSalt: data.user!.kdf_salt,
-        kdfParams: data.user!.kdf_params,
-        isAdmin: data.user!.is_admin ?? false,
-        totpEnabled: data.user!.totp_enabled ?? false,
-      },
-      masterKey,
-      data.access_token!
-    )
+  async function completeLogin(data: LoginResponse, remember = false) {
+    const userObj = {
+      id: data.user!.id!,
+      email: data.user!.email!,
+      kdfSalt: data.user!.kdf_salt,
+      kdfParams: data.user!.kdf_params,
+      isAdmin: data.user!.is_admin ?? false,
+      totpEnabled: data.user!.totp_enabled ?? false,
+    }
+    const masterKey = await deriveKeyFromLogin(password, userObj.kdfSalt, userObj.kdfParams)
+    setUser(userObj, masterKey, data.access_token!)
+    if (remember) saveRememberMe(userObj)
     navigate('/')
   }
 
@@ -68,7 +63,7 @@ export default function LoginPage() {
     // ── 1. Appel API login ─────────────────────────────────────────────────
     let loginData: LoginResponse
     try {
-      const { data } = await authApi.login(email, password)
+      const { data } = await authApi.login(email, password, rememberMe)
       loginData = data
     } catch (err: unknown) {
       console.error('[Login] Erreur appel API:', err)
@@ -93,7 +88,7 @@ export default function LoginPage() {
           setStep('totp_verify')
         }
       } else {
-        await completeLogin(loginData)
+        await completeLogin(loginData, rememberMe)
       }
     } catch (err: unknown) {
       console.error('[Login] Erreur completeLogin:', err)
@@ -113,7 +108,7 @@ export default function LoginPage() {
 
     try {
       const { data } = await totpApi.verify(totpToken, totpCode)
-      await completeLogin(data)
+      await completeLogin(data, rememberMe)
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })
         ?.response?.data?.error
@@ -134,7 +129,7 @@ export default function LoginPage() {
       await totpApi.enable(totpCode, totpToken)
       // 2. Get real tokens (same code, no replay protection server-side)
       const { data } = await totpApi.verify(totpToken, totpCode)
-      await completeLogin(data)
+      await completeLogin(data, rememberMe)
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })
         ?.response?.data?.error
@@ -192,6 +187,16 @@ export default function LoginPage() {
                   autoComplete="current-password"
                 />
               </div>
+
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  className="w-4 h-4 rounded border-surface-600 bg-surface-700 text-accent-500 focus:ring-accent-500 focus:ring-offset-surface-800"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                />
+                <span className="text-xs text-gray-400">Se souvenir de moi (30 jours)</span>
+              </label>
 
               <button type="submit" className="btn-primary w-full justify-center" disabled={loading}>
                 {loading ? (

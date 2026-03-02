@@ -24,7 +24,10 @@ func NewRouter(cfg *config.Config, pool *pgxpool.Pool) http.Handler {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(60 * time.Second))
+	// Note : middleware.Timeout intentionnellement absent du scope global.
+	// Les routes WebSocket (/ws/*) sont des connexions longues durée ; un timeout
+	// global tuerait les sessions et générerait des warnings "WriteHeader on hijacked
+	// connection". Les routes API sont assez rapides pour ne pas en avoir besoin.
 
 	// CORS
 	origins := strings.Split(cfg.AllowedOrigins, ",")

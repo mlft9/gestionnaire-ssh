@@ -36,6 +36,7 @@ export default function Terminal({ hostId }: Props) {
   const [errorMsg, setErrorMsg] = useState('')
   const [host, setHost] = useState<Host | null>(null)
   const [sessionId, setSessionId] = useState('')
+  const [retryCount, setRetryCount] = useState(0)
 
   // Initialise xterm.js
   const initXterm = useCallback(() => {
@@ -194,7 +195,7 @@ export default function Terminal({ hostId }: Props) {
       fitAddonRef.current = null
       serviceRef.current = null
     }
-  }, [hostId, masterKey, initXterm])
+  }, [hostId, masterKey, initXterm, retryCount])
 
   return (
     <div className="flex flex-col h-full bg-surface-900">
@@ -238,7 +239,7 @@ export default function Terminal({ hostId }: Props) {
                   <p className="text-xs text-gray-500 mt-1">{errorMsg}</p>
                 </div>
                 <button
-                  onClick={() => window.location.reload()}
+                  onClick={() => setRetryCount((c) => c + 1)}
                   className="btn-ghost text-xs py-1.5"
                 >
                   Réessayer
@@ -253,7 +254,7 @@ export default function Terminal({ hostId }: Props) {
                   <p className="text-xs text-gray-600 mt-1">La connexion SSH a été fermée</p>
                 </div>
                 <button
-                  onClick={() => window.location.reload()}
+                  onClick={() => setRetryCount((c) => c + 1)}
                   className="btn-ghost text-xs py-1.5"
                 >
                   Reconnecter

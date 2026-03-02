@@ -160,7 +160,7 @@ func (h *TOTPHandler) Verify(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	refreshToken, err := auth.GenerateRefreshToken(h.cfg.JWTSecret, claims.UserID, claims.Email, claims.IsAdmin)
+	refreshToken, err := auth.GenerateRefreshToken(h.cfg.JWTSecret, claims.UserID, claims.Email, claims.IsAdmin, auth.RefreshTokenDuration)
 	if err != nil {
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return

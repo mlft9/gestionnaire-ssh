@@ -77,8 +77,9 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 // ─── Login ────────────────────────────────────────────────────────────────────
 
 type loginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Email      string `json:"email"`
+	Password   string `json:"password"`
+	RememberMe bool   `json:"remember_me"`
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -146,7 +147,11 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	refreshToken, err := auth.GenerateRefreshToken(h.cfg.JWTSecret, user.ID, user.Email, user.IsAdmin)
+	refreshDuration := auth.RefreshTokenDuration
+	if req.RememberMe {
+		refreshDuration = auth.LongRefreshTokenDuration
+	}
+	refreshToken, err := auth.GenerateRefreshToken(h.cfg.JWTSecret, user.ID, user.Email, user.IsAdmin, refreshDuration)
 	if err != nil {
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
@@ -171,7 +176,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		Secure:   isSecure,
 		SameSite: http.SameSiteStrictMode,
 		Path:     "/api/auth/refresh",
-		MaxAge:   int(auth.RefreshTokenDuration.Seconds()),
+		MaxAge:   int(refreshDuration.Seconds()),
 	})
 
 	jsonResponse(w, map[string]interface{}{

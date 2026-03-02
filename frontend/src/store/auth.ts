@@ -45,6 +45,7 @@ interface AuthState {
 // ─── Session storage (données user uniquement, jamais la clé ni le token) ──────
 
 const SESSION_KEY = 'ssh_mgr_user'
+const REMEMBER_KEY = 'ssh_mgr_remember'
 
 function saveSession(user: AuthUser) {
   try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(user)) } catch { /* noop */ }
@@ -52,12 +53,21 @@ function saveSession(user: AuthUser) {
 
 function clearSession() {
   try { sessionStorage.removeItem(SESSION_KEY) } catch { /* noop */ }
+  try { localStorage.removeItem(REMEMBER_KEY) } catch { /* noop */ }
+}
+
+export function saveRememberMe(user: AuthUser) {
+  try { localStorage.setItem(REMEMBER_KEY, JSON.stringify(user)) } catch { /* noop */ }
 }
 
 export function loadSessionUser(): AuthUser | null {
   try {
+    // sessionStorage en priorité (onglet actif)
     const raw = sessionStorage.getItem(SESSION_KEY)
-    return raw ? (JSON.parse(raw) as AuthUser) : null
+    if (raw) return JSON.parse(raw) as AuthUser
+    // fallback localStorage (remember me inter-sessions)
+    const persisted = localStorage.getItem(REMEMBER_KEY)
+    return persisted ? (JSON.parse(persisted) as AuthUser) : null
   } catch {
     return null
   }

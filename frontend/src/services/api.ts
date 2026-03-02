@@ -87,8 +87,8 @@ export const authApi = {
   register: (email: string, password: string) =>
     api.post<RegisterResponse>('/auth/register', { email, password }),
 
-  login: (email: string, password: string) =>
-    api.post<LoginResponse>('/auth/login', { email, password }),
+  login: (email: string, password: string, rememberMe = false) =>
+    api.post<LoginResponse>('/auth/login', { email, password, remember_me: rememberMe }),
 
   logout: () => api.post('/auth/logout'),
 

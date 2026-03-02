@@ -49,8 +49,6 @@ func NewProxy(pool *pgxpool.Pool, wsConn *websocket.Conn) *Proxy {
 }
 
 func (p *Proxy) HandleConnection(ctx context.Context, payload ConnectPayload, userID, clientIP string) {
-	defer p.send("closed", map[string]string{"reason": "session ended"})
-
 	host, err := db.GetHostByID(ctx, p.pool, payload.HostID, userID)
 	if err != nil {
 		p.sendError("host not found")
@@ -131,10 +129,61 @@ func (p *Proxy) HandleConnection(ctx context.Context, payload ConnectPayload, us
 		log.Printf("failed to create session record: %v", err)
 	}
 	p.sessionID = sessionID
+	shortID := sessionID
+	if len(shortID) > 8 {
+		shortID = shortID[:8]
+	}
+	tag := fmt.Sprintf("[session=%s host=%s]", shortID, host.Name)
+	log.Printf("%s session started (user=%s ip=%s)", tag, userID, clientIP)
 	p.send("connected", map[string]string{"session_id": sessionID, "host_name": host.Name})
 
 	ctx2, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	// WebSocket keepalive : envoie un ping toutes les 30s pour maintenir la connexion
+	// à travers les NAT/firewalls qui coupent les TCP idle.
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx2.Done():
+				log.Printf("%s ws-keepalive goroutine: ctx done, exiting", tag)
+				return
+			case <-ticker.C:
+				p.writeMu.Lock()
+				err := p.wsConn.WriteMessage(websocket.PingMessage, nil)
+				p.writeMu.Unlock()
+				if err != nil {
+					log.Printf("%s ws-keepalive: ping failed: %v → cancelling", tag, err)
+					cancel()
+					return
+				}
+				log.Printf("%s ws-keepalive: ping OK", tag)
+			}
+		}
+	}()
+
+	// SSH keepalive : envoie un keepalive au serveur SSH toutes les 30s.
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx2.Done():
+				log.Printf("%s ssh-keepalive goroutine: ctx done, exiting", tag)
+				return
+			case <-ticker.C:
+				_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
+				if err != nil {
+					log.Printf("%s ssh-keepalive: request failed: %v → cancelling", tag, err)
+					cancel()
+					return
+				}
+				log.Printf("%s ssh-keepalive: OK", tag)
+			}
+		}
+	}()
 
 	go func() {
 		buf := make([]byte, 4096)
@@ -144,6 +193,9 @@ func (p *Proxy) HandleConnection(ctx context.Context, payload ConnectPayload, us
 				p.send("output", map[string]string{"data": string(buf[:n])})
 			}
 			if err != nil {
+				log.Printf("%s stdout goroutine: read error: %v → closing ws", tag, err)
+				p.send("closed", map[string]string{"reason": "ssh closed"})
+				p.wsConn.Close()
 				cancel()
 				return
 			}
@@ -157,6 +209,7 @@ func (p *Proxy) HandleConnection(ctx context.Context, payload ConnectPayload, us
 				p.send("output", map[string]string{"data": string(buf[:n])})
 			}
 			if err != nil {
+				log.Printf("%s stderr goroutine: read error: %v", tag, err)
 				return
 			}
 		}
@@ -165,12 +218,14 @@ func (p *Proxy) HandleConnection(ctx context.Context, payload ConnectPayload, us
 	for {
 		select {
 		case <-ctx2.Done():
+			log.Printf("%s main loop: ctx done, exiting", tag)
 			return
 		default:
 		}
 
 		_, raw, err := p.wsConn.ReadMessage()
 		if err != nil {
+			log.Printf("%s main loop: ws ReadMessage error: %v", tag, err)
 			return
 		}
 
@@ -193,6 +248,7 @@ func (p *Proxy) HandleConnection(ctx context.Context, payload ConnectPayload, us
 			}
 			session.WindowChange(int(r.Rows), int(r.Cols))
 		case "disconnect":
+			log.Printf("%s client sent disconnect", tag)
 			return
 		}
 	}

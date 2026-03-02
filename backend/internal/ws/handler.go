@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -88,8 +89,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	proxy := sshproxy.NewProxy(h.pool, conn)
-	defer proxy.CloseSession(r.Context())
-	proxy.HandleConnection(r.Context(), payload, user.UserID, clientIP)
+	// context.Background() : ne pas hériter de r.Context() qui a le middleware.Timeout(60s)
+	// de chi — ce timeout tuerait toutes les sessions SSH après 60 secondes.
+	defer proxy.CloseSession(context.Background())
+	proxy.HandleConnection(context.Background(), payload, user.UserID, clientIP)
 }
 
 func sendWSError(conn *websocket.Conn, message string) {

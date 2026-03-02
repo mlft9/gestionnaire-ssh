@@ -43,11 +43,13 @@ func main() {
 	router := api.NewRouter(cfg, database)
 
 	srv := &http.Server{
-		Addr:         ":" + cfg.Port,
-		Handler:      router,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		Addr:              ":" + cfg.Port,
+		Handler:           router,
+		ReadHeaderTimeout: 15 * time.Second, // protège contre slow-loris (headers uniquement)
+		IdleTimeout:       120 * time.Second,
+		// ReadTimeout et WriteTimeout intentionnellement absents : gorilla/websocket v1.5
+		// ne réinitialise pas les deadlines posées par le serveur HTTP après le hijack,
+		// ce qui tuerait les sessions WebSocket actives au bout de ces délais.
 	}
 
 	go func() {

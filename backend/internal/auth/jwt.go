@@ -21,9 +21,10 @@ var (
 )
 
 const (
-	AccessTokenDuration      = 15 * time.Minute
-	RefreshTokenDuration     = 7 * 24 * time.Hour
-	TOTPPendingTokenDuration = 5 * time.Minute
+	AccessTokenDuration          = 15 * time.Minute
+	RefreshTokenDuration         = 7 * 24 * time.Hour
+	LongRefreshTokenDuration     = 30 * 24 * time.Hour
+	TOTPPendingTokenDuration     = 5 * time.Minute
 )
 
 func GenerateAccessToken(secret, userID, email string, isAdmin bool) (string, error) {
@@ -42,14 +43,14 @@ func GenerateAccessToken(secret, userID, email string, isAdmin bool) (string, er
 	return token.SignedString([]byte(secret))
 }
 
-func GenerateRefreshToken(secret, userID, email string, isAdmin bool) (string, error) {
+func GenerateRefreshToken(secret, userID, email string, isAdmin bool, duration time.Duration) (string, error) {
 	claims := Claims{
 		UserID:    userID,
 		Email:     email,
 		IsAdmin:   isAdmin,
 		TokenType: "refresh",
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(RefreshTokenDuration)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(duration)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			Subject:   userID,
 		},
